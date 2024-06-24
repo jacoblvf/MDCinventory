@@ -16,7 +16,7 @@ df4 = df4.groupby(["Name", "POM"])[["Multiplier", "Scan_out"]].agg(Multiplier = 
 df3 = df3.reset_index()
 df4 = df4.reset_index()
 
-df5_2 = df3.merge(df4, on=['Name', 'POM'], suffixes=[None, '_copy'])
+df5_2 = df3.merge(df4, on=['Name'], suffixes=[None, '_copy'])
 df3 = df3.sort_values(by='Name', ascending=False)
 df4 = df4.sort_values(by='Name', ascending=False)
 df5 = pd.concat([df3,df4["Scan_out"]], axis=1)
