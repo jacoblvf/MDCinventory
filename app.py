@@ -10,13 +10,13 @@ df2 = requests.get('https://api.orcascan.com/sheets/L8Wpy42K0h_Mifmb?datetimefor
 df3 = pd.read_csv(io.StringIO(df1.decode('utf-8')))
 df4 = pd.read_csv(io.StringIO(df2.decode('utf-8')))
 
-df3 = df3.groupby(["Name", "Bulk_or_Indiv"])[["Multiplier", "Scan_in"]].agg(Multiplier = ("Multiplier", "max"), Scan_in = ("Scan_in", "sum"))
-df4 = df4.groupby(["Name", "Bulk_or_Indiv"])[["Multiplier", "Scan_out"]].agg(Multiplier = ("Multiplier", "max"), Scan_out = ("Scan_out", "sum"))
+df3 = df3.groupby(["Name", "POM"])[["Multiplier", "Scan_in"]].agg(Multiplier = ("Multiplier", "max"), Scan_in = ("Scan_in", "sum"))
+df4 = df4.groupby(["Name", "POM"])[["Multiplier", "Scan_out"]].agg(Multiplier = ("Multiplier", "max"), Scan_out = ("Scan_out", "sum"))
 
 df3 = df3.reset_index()
 df4 = df4.reset_index()
 
-df5_2 = df3.merge(df4, on=['Name', 'Bulk_or_Indiv'], suffixes=[None, '_copy'])
+df5_2 = df3.merge(df4, on=['Name', 'POM'], suffixes=[None, '_copy'])
 df3 = df3.sort_values(by='Name', ascending=False)
 df4 = df4.sort_values(by='Name', ascending=False)
 df5 = pd.concat([df3,df4["Scan_out"]], axis=1)
