@@ -50,7 +50,7 @@ st.download_button(
     mime='text/csv',
 )
 
-df8 = requests.get('https://docs.google.com/spreadsheets/d/12rvTfpgODsT2R1tf-wBNJN0MVfs2M7AtHz93eA7L-9U/export?format=csv&grid=768037178').content
+df8 = requests.get('https://docs.google.com/spreadsheets/d/12rvTfpgODsT2R1tf-wBNJN0MVfs2M7AtHz93eA7L-9U/export?format=csv&gid=768037178').content
 
 df9 = pd.read_csv(io.StringIO(df8.decode('utf-8')))
 df10 = df6.merge(df9, on=['Name'], suffixes=[None, '_copy'])
