@@ -24,7 +24,7 @@ df5=df5_2
 
 df5["scan_qty"] = df5["Scan_in"] - df5["Scan_out"]
 df5["indiv_qty"] = df5["scan_qty"]*df5["Multiplier"]
-df6 = df5.groupby(["Name"])[["POM", "indiv_qty"]].agg(bulkindiv = ("POM", "max"), qty = ("indiv_qty", "sum"))
+df6 = df5.groupby(["Name"])[["POM", "indiv_qty"]].agg(POM = ("POM", "max"), qty = ("indiv_qty", "sum"))
 
 df7 = df6.rename(columns={'POM': 'Status', 'qty': 'Product Quantity'})
 df7['Product Quantity'] = df7['Product Quantity'].astype("int64")
