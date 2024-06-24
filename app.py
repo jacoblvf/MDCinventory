@@ -10,8 +10,8 @@ df2 = requests.get('https://api.orcascan.com/sheets/L8Wpy42K0h_Mifmb?datetimefor
 df3 = pd.read_csv(io.StringIO(df1.decode('utf-8')))
 df4 = pd.read_csv(io.StringIO(df2.decode('utf-8')))
 
-df3 = df3.groupby(["Name", "POM"])[["Multiplier", "Scan_in"]].agg(Multiplier = ("Multiplier", "max"), Scan_in = ("Scan_in", "sum"))
-df4 = df4.groupby(["Name", "POM"])[["Multiplier", "Scan_out"]].agg(Multiplier = ("Multiplier", "max"), Scan_out = ("Scan_out", "sum"))
+df3 = df3.groupby(["Name"])[["Multiplier", "Scan_in"]].agg(Multiplier = ("Multiplier", "max"), Scan_in = ("Scan_in", "sum"))
+df4 = df4.groupby(["Name"])[["Multiplier", "Scan_out"]].agg(Multiplier = ("Multiplier", "max"), Scan_out = ("Scan_out", "sum"))
 
 df3 = df3.reset_index()
 df4 = df4.reset_index()
