@@ -4,58 +4,155 @@ import io
 import streamlit as st
 from datetime import date
 
+# --- Page Setup ---
+st.set_page_config(page_title="Inventory Dashboard", layout="wide")
+st.title("Inventory Dashboard")
+
+# --- OrcaScan URLs ---
+SCAN_IN_URL = "https://api.orcascan.com/sheets/Qe5TcdQ-md37f_8B?datetimeformat=DD/MM/YYYY HH:mm:ss&timezone=+00:00"
+SCAN_OUT_URL = "https://api.orcascan.com/sheets/L8Wpy42K0h_Mifmb?datetimeformat=DD/MM/YYYY HH:mm:ss&timezone=+00:00"
+
 # --- Data Fetching ---
-df1 = requests.get('https://api.orcascan.com/sheets/Qe5TcdQ-md37f_8B?datetimeformat=DD/MM/YYYY HH:mm:ss&timezone=+00:00').content
-df2 = requests.get('https://api.orcascan.com/sheets/L8Wpy42K0h_Mifmb?datetimeformat=DD/MM/YYYY HH:mm:ss&timezone=+00:00').content
-df3 = pd.read_csv(io.StringIO(df1.decode('utf-8')))
-df4 = pd.read_csv(io.StringIO(df2.decode('utf-8')))
+@st.cache_data(ttl=60)
+def fetch_csv(url):
+    response = requests.get(url, timeout=15)
+    response.raise_for_status()
+    return pd.read_csv(io.StringIO(response.content.decode("utf-8")))
 
-# --- Aggregation ---
-df5 = df3.groupby(["Name", "Bulk_or_Indiv"])[["Multiplier", "Scan_in"]].agg(
-    Multiplier=("Multiplier", "max"), Scan_in=("Scan_in", "sum")).reset_index()
+try:
+    df_in_raw = fetch_csv(SCAN_IN_URL)
+    df_out_raw = fetch_csv(SCAN_OUT_URL)
+except Exception as e:
+    st.error(f"Failed to fetch inventory data: {e}")
+    st.stop()
 
-df6 = df4.groupby(["Name", "Bulk_or_Indiv"])[["Multiplier", "Scan_out"]].agg(
-    Multiplier=("Multiplier", "max"), Scan_out=("Scan_out", "sum")).reset_index()
+# --- Required Column Check ---
+required_in_cols = {"Name", "Bulk_or_Indiv", "Multiplier", "Scan_in"}
+required_out_cols = {"Name", "Bulk_or_Indiv", "Multiplier", "Scan_out"}
 
-df7_2 = df5.merge(df6, on=['Name', 'Bulk_or_Indiv'], suffixes=[None, '_copy'])
+if not required_in_cols.issubset(df_in_raw.columns):
+    st.error(f"Scan-in sheet is missing columns: {required_in_cols - set(df_in_raw.columns)}")
+    st.stop()
 
-df7_2["scan_qty"] = df7_2["Scan_in"] - df7_2["Scan_out"]
-df7_2["indiv_qty"] = df7_2["scan_qty"] * df7_2["Multiplier"]
+if not required_out_cols.issubset(df_out_raw.columns):
+    st.error(f"Scan-out sheet is missing columns: {required_out_cols - set(df_out_raw.columns)}")
+    st.stop()
 
-df8 = df7_2.groupby(["Name"])[["Bulk_or_Indiv", "indiv_qty"]].agg(
-    bulkindiv=("Bulk_or_Indiv", lambda x: "Indiv"),
-    qty=("indiv_qty", "sum")).reset_index()
+# --- Clean Data ---
+df_in_raw["Multiplier"] = pd.to_numeric(df_in_raw["Multiplier"], errors="coerce").fillna(1)
+df_in_raw["Scan_in"] = pd.to_numeric(df_in_raw["Scan_in"], errors="coerce").fillna(0)
 
-df9 = df8.rename(columns={'bulkindiv': 'Status', 'qty': 'Product Quantity'})
-df9['Product Quantity'] = df9['Product Quantity'].astype("int64")
+df_out_raw["Multiplier"] = pd.to_numeric(df_out_raw["Multiplier"], errors="coerce").fillna(1)
+df_out_raw["Scan_out"] = pd.to_numeric(df_out_raw["Scan_out"], errors="coerce").fillna(0)
 
-# --- Highlight Logic ---
-def highlight_low_set(row):
-    if "set" in row["Name"].lower() and row["Product Quantity"] < 5:
-        return ['background-color: red'] * len(row)
+# --- Aggregate Scan In ---
+df_in = (
+    df_in_raw
+    .groupby(["Name", "Bulk_or_Indiv"], dropna=False)
+    .agg(
+        Multiplier_in=("Multiplier", "max"),
+        Scan_in=("Scan_in", "sum")
+    )
+    .reset_index()
+)
+
+# --- Aggregate Scan Out ---
+df_out = (
+    df_out_raw
+    .groupby(["Name", "Bulk_or_Indiv"], dropna=False)
+    .agg(
+        Multiplier_out=("Multiplier", "max"),
+        Scan_out=("Scan_out", "sum")
+    )
+    .reset_index()
+)
+
+# --- Merge Scan In and Scan Out ---
+df_merged = df_in.merge(
+    df_out,
+    on=["Name", "Bulk_or_Indiv"],
+    how="outer"
+)
+
+# --- Fill Missing Values ---
+df_merged["Scan_in"] = df_merged["Scan_in"].fillna(0)
+df_merged["Scan_out"] = df_merged["Scan_out"].fillna(0)
+
+df_merged["Multiplier"] = (
+    df_merged["Multiplier_in"]
+    .fillna(df_merged["Multiplier_out"])
+    .fillna(1)
+)
+
+# --- Calculate Current Quantity ---
+df_merged["scan_qty"] = df_merged["Scan_in"] - df_merged["Scan_out"]
+df_merged["indiv_qty"] = df_merged["scan_qty"] * df_merged["Multiplier"]
+
+# --- Final Summary by Product Name ---
+df_final = (
+    df_merged
+    .groupby("Name", dropna=False)
+    .agg(
+        Status=("Bulk_or_Indiv", lambda x: "Indiv"),
+        Product_Quantity=("indiv_qty", "sum")
+    )
+    .reset_index()
+)
+
+df_final["Product_Quantity"] = df_final["Product_Quantity"].round().astype("int64")
+df_final = df_final.rename(columns={"Product_Quantity": "Product Quantity"})
+
+# --- Low Stock Highlighting ---
+def highlight_low_stock(row):
+    name = str(row["Name"]).lower()
+    qty = row["Product Quantity"]
+
+    if "set" in name and qty < 5:
+        return ["background-color: #ff4d4d"] * len(row)
+    elif qty < 10:
+        return ["background-color: #fff2cc"] * len(row)
     else:
-        return [''] * len(row)
+        return [""] * len(row)
 
-styled_df = df9.style.apply(highlight_low_set, axis=1)
+styled_df = df_final.style.apply(highlight_low_stock, axis=1)
 
-# --- Display ---
+# --- Display Metrics ---
+total_products = len(df_final)
+low_stock_sets = df_final[
+    df_final["Name"].str.lower().str.contains("set", na=False)
+    & (df_final["Product Quantity"] < 5)
+].shape[0]
+
+negative_stock = df_final[df_final["Product Quantity"] < 0].shape[0]
+
+col1, col2, col3 = st.columns(3)
+col1.metric("Total Products", total_products)
+col2.metric("Low Stock Sets", low_stock_sets)
+col3.metric("Negative Stock Items", negative_stock)
+
+# --- Display Inventory Table ---
+st.subheader("Current Inventory")
 st.dataframe(styled_df, use_container_width=True)
 
-# --- Refresh Button ---
-refresh_button = st.button("Refresh")
-if refresh_button:
-    st.experimental_rerun()
+# --- Show Negative Stock Warning ---
+if negative_stock > 0:
+    st.warning("Some items have negative stock. Please check for scan-out errors.")
 
-# --- Download ---
+# --- Refresh Button ---
+if st.button("Refresh"):
+    st.cache_data.clear()
+    st.rerun()
+
+# --- Download CSV ---
 @st.cache_data
 def convert_df(df):
-    return df.to_csv().encode('utf-8')
+    return df.to_csv(index=False).encode("utf-8")
 
-csv = convert_df(df9)
+csv = convert_df(df_final)
 
 st.download_button(
     label="Download data as CSV",
     data=csv,
-    file_name=str(date.today()) + ".csv",
-    mime='text/csv',
+    file_name=f"{date.today()}_inventory.csv",
+    mime="text/csv",
 )
